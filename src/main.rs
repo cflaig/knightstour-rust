@@ -1,14 +1,17 @@
 use std::time::Instant;
 use ndarray::{ArrayBase, Ix2, OwnedRepr};
+use clap::{arg, Arg};
+use clap::Command;
 
 const KNIGHT_MOVES: [(i8, i8); 8] = [(2, 1), (2, -1), (1, 2), (1, -2), (-1, 2), (-1, -2), (-2, 1), (-2, -1)];
 
+#[allow(dead_code)]
 fn knights_tour_simple(pos: (usize, usize), step: usize, board: &mut ArrayBase<OwnedRepr<i8>, Ix2>, nr_fields: usize, solutions: &mut u64, nr_nodes: &mut u64, start: &Instant) {
     *nr_nodes += 1;
     let backup = board[pos];
     board[pos] = -(step as i8);
     if step == nr_fields /*&& pos == (2,2)*/ {
-        if *solutions % 1000 == 0 {
+        if *solutions & 0x3FFF == 0 { //16k
             let elapsed = start.elapsed().as_secs_f32();
             println!("{:6} Solutions in {:8.3}s {:8.2} Solutions/s {:13} Nodes", *solutions + 1, elapsed, (*solutions + 1) as f32/elapsed, nr_nodes);
         }
@@ -29,7 +32,7 @@ fn knights_tour(pos: (usize, usize), step: usize, board: &mut ArrayBase<OwnedRep
     let backup = board[pos];
     board[pos] = -(step as i8);
     if step ==nr_fields && pos == (2,2) {
-        if *solutions % 10000 == 0 {
+        if *solutions & 0x7FFF == 0 { //16k
             let elapsed = start.elapsed().as_secs_f32();
             eprintln!("{:6} Solutions in {:8.3}s {:8.2} Solutions/s {:13} Nodes", *solutions + 1, elapsed, (*solutions + 1) as f32/elapsed, nr_nodes);
         }
@@ -42,7 +45,9 @@ fn knights_tour(pos: (usize, usize), step: usize, board: &mut ArrayBase<OwnedRep
             moves[i] = (new_pos, board[new_pos]);
         };
 
-        moves.sort_by(|a,b| a.1.cmp(&b.1));
+        moves.sort_by(|a,b| {
+            a.1.cmp(&b.1)
+        });
 
         for (new_pos, nr_reachable) in moves.iter() {
             if *nr_reachable == 0 {
@@ -62,22 +67,61 @@ fn knights_tour(pos: (usize, usize), step: usize, board: &mut ArrayBase<OwnedRep
 }
 
 fn main() {
-    for fields in 18..55 {
-        for x in 3..7 {
-            if x == 4 {
-                continue; //no closed cycle on dim 4
-            }
-            if fields % 2 == 1 {
-                continue; //no closed cycle due different amount of fields of each color
-            }
-            if fields % x == 0 {
-                let y = fields / x;
-                if y >= x {
-                    find_knight_tour_on(x,y);
+
+    let matches = clap::command!()
+        .version("v0.0.1")
+        .propagate_version(true)
+        .arg(arg!(
+            -d --debug "Turn debugging information on"
+        ))
+        .subcommand(Command::new("benchmark")
+            .about("Runs a benchmark")
+            .arg(Arg::new("x_axis")
+                .help("x-dimension of the board")
+                .long("x_axis")
+                .short('x')
+                .num_args(1)
+                .default_value("6")
+                .value_parser(clap::value_parser!(usize)))
+                .arg(Arg::new("y_axis")
+                    .help("y-dimension of the board")
+                    .long("y_axis")
+                    .short('y')
+                    .num_args(1)
+                    .default_value("6")
+                    .value_parser(clap::value_parser!(usize)))
+            )
+        .get_matches();
+
+    let _debug = matches.get_flag("debug");
+
+    match matches.subcommand() {
+        Some(("benchmark", sub_m)) => {
+            let x_arg = sub_m.get_one::<usize>("x_axis");
+            let y_arg = sub_m.get_one::<usize>("y_axis");
+            find_knight_tour_on(x_arg.unwrap().clone(), y_arg.unwrap().clone());
+        }
+        None => {
+            for fields in 18..55 {
+                for x in 3..7 {
+                    if x == 4 {
+                        continue; //no closed cycle on dim 4
+                    }
+                    if fields % 2 == 1 {
+                        continue; //no closed cycle due different amount of fields of each color
+                    }
+                    if fields % x == 0 {
+                        let y = fields / x;
+                        if y >= x {
+                            find_knight_tour_on(x,y);
+                        }
+                    }
                 }
             }
         }
+        _ => unreachable!("Exhausted list of subcommands"),
     }
+
 }
 
 fn find_knight_tour_on(size_x: usize, size_y: usize) {
