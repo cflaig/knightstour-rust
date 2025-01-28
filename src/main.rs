@@ -54,6 +54,9 @@ fn knights_tour(pos: u8, step: u8, board: &mut Vec<i8>, nr_fields: u8, target_po
 
         while i > 0 && moves[0].0 > 0 {
             knights_tour(moves[0].1, step+1, board, nr_fields, target_pos, knight_jumps, solutions, nr_nodes, start);
+            if moves[0].0 == 1 {
+                break;
+            }
             remove_min_from_heap(&mut moves, &mut i);
         }
 
@@ -188,7 +191,7 @@ fn find_knight_tour_on(size_x: u8, size_y: u8) {
 
     let start = Instant::now();
     eprintln!("Starting on {:2}x{:<2} ", size_x, size_y);
-    knights_tour_simple(pos, 1, &mut board, size_y * size_x, target_pos, &knight_jumps, &mut solution, &mut nr_nodes, &start);
+    knights_tour(pos, 1, &mut board, size_y * size_x, target_pos, &knight_jumps, &mut solution, &mut nr_nodes, &start);
     let elapsed_time = start.elapsed().as_secs_f32();
     println!("On {:2}x{:<2} {:7} Solutions in {:8.3}s {:8.2} Solutions/s {:13} Nodes", size_x, size_y, solution, elapsed_time, solution as f32/elapsed_time, nr_nodes);
 }
