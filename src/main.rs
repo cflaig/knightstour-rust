@@ -1,5 +1,5 @@
 use std::time::Instant;
-use ndarray::{ArrayBase, Ix2, OwnedRepr};
+use tokio::task::JoinSet;
 use clap::{arg, Arg};
 use clap::Command;
 
@@ -32,25 +32,13 @@ fn knights_tour(pos: u8, step: u8, board: &mut Vec<i8>, nr_fields: u8, target_po
     let backup = board[pos as usize];
     board[pos as usize] = -(step as i8);
     if step == nr_fields && pos == target_pos {
-        if *solutions & 0x7FFF == 0 { //16k
-            let elapsed = start.elapsed().as_secs_f32();
-            eprintln!("{:6} Solutions in {:8.3}s {:8.2} Solutions/s {:13} Nodes", *solutions + 1, elapsed, (*solutions + 1) as f32/elapsed, nr_nodes);
-        }
+        // if *solutions & 0x7FFF == 0 { //16k
+        //     let elapsed = start.elapsed().as_secs_f32();
+        //     eprintln!("{:6} Solutions in {:8.3}s {:8.2} Solutions/s {:13} Nodes", *solutions + 1, elapsed, (*solutions + 1) as f32/elapsed, nr_nodes);
+        // }
         *solutions += 1;
     } else {
-        let mut moves = [(0, 0u8);7];
-        let mut i = 0;
-        for delta in knight_jumps {
-            let new_pos = (pos as i8 + delta) as u8;
-            let reachable = board[new_pos as usize];
-            if reachable > 0 {
-                board[new_pos as usize] -= 1;
-                moves[i] = (board[new_pos as usize], new_pos);
-                i += 1;
-            }
-        };
-
-        build_heap(&mut moves, i);
+        let (mut moves, mut i) = execute_knight_jumps_from_position(pos, board, knight_jumps);
 
         while i > 0 && moves[0].0 > 0 {
             knights_tour(moves[0].1, step+1, board, nr_fields, target_pos, knight_jumps, solutions, nr_nodes, start);
@@ -60,13 +48,57 @@ fn knights_tour(pos: u8, step: u8, board: &mut Vec<i8>, nr_fields: u8, target_po
             remove_min_from_heap(&mut moves, &mut i);
         }
 
-        for delta in knight_jumps {
-            let new_pos = (pos as i8 + delta) as u8;
-            if board[new_pos as usize] >= 0 {
-                board[new_pos as usize] +=1;
-            }
-        };
+        undo_knightjump(pos, board, knight_jumps);
     }
+    board[pos as usize] = backup;
+}
+
+#[inline]
+fn undo_knightjump(pos: u8, board: &mut Vec<i8>, knight_jumps: &[i8; 8]) {
+    for delta in knight_jumps {
+        let new_pos = (pos as i8 + delta) as u8;
+        if board[new_pos as usize] >= 0 {
+            board[new_pos as usize] += 1;
+        }
+    }
+}
+
+#[inline]
+fn execute_knight_jumps_from_position(pos: u8, board: &mut Vec<i8>, knight_jumps: &[i8; 8]) -> ([(i8, u8); 7], usize) {
+    let mut moves = [(0, 0u8); 7];
+    let mut i = 0;
+    for delta in knight_jumps {
+        let new_pos = (pos as i8 + delta) as u8;
+        let reachable = board[new_pos as usize];
+        if reachable > 0 {
+            board[new_pos as usize] -= 1;
+            moves[i] = (board[new_pos as usize], new_pos);
+            i += 1;
+        }
+    };
+
+    build_heap(&mut moves, i);
+    (moves, i)
+}
+
+fn create_tasks(pos: u8, step: u8, depth: u8, board: &mut Vec<i8>, knight_jumps: &[i8;8], vec: &mut Vec<(Vec<i8>, u8, u8, u16)>) {
+    if step == depth {
+        vec.push((board.clone(), pos, step, vec.len() as u16));
+        return;
+    }
+    let backup = board[pos as usize];
+    board[pos as usize] = -(step as i8);
+    let (mut moves, mut i) = execute_knight_jumps_from_position(pos, board, knight_jumps);
+
+    while i > 0 && moves[0].0 > 0 {
+        create_tasks(moves[0].1, step+1, depth, board, knight_jumps, vec);
+        if moves[0].0 == 1 {
+            break;
+        }
+        remove_min_from_heap(&mut moves, &mut i);
+    }
+
+    undo_knightjump(pos, board, knight_jumps);
     board[pos as usize] = backup;
 }
 
@@ -127,6 +159,13 @@ fn main() {
                     .num_args(1)
                     .default_value("6")
                     .value_parser(clap::value_parser!(usize)))
+            .arg(Arg::new("depth")
+                .help("depth to crate tasks")
+                .long("depth")
+                .short('d')
+                .num_args(1)
+                .default_value("6")
+                .value_parser(clap::value_parser!(usize)))
             )
         .get_matches();
 
@@ -136,7 +175,8 @@ fn main() {
         Some(("benchmark", sub_m)) => {
             let x_arg = sub_m.get_one::<usize>("x_axis");
             let y_arg = sub_m.get_one::<usize>("y_axis");
-            find_knight_tour_on(x_arg.unwrap().clone() as u8, y_arg.unwrap().clone() as u8);
+            let d_arg = sub_m.get_one::<usize>("depth");
+            find_knight_tour_on(x_arg.unwrap().clone() as u8, y_arg.unwrap().clone() as u8, d_arg.unwrap().clone() as u8);
         }
         None => {
             for fields in 18..55 {
@@ -150,7 +190,7 @@ fn main() {
                     if fields % x == 0 {
                         let y = fields / x;
                         if y >= x {
-                            find_knight_tour_on(x,y);
+                            find_knight_tour_on(x,y, 6);
                         }
                     }
                 }
@@ -161,6 +201,7 @@ fn main() {
 
 }
 
+#[allow(dead_code)]
 fn printboard(board: &Vec<i8>, size_x: usize, size_y: usize) {
     for y in 0..size_y {
         for x in 0..size_x {
@@ -170,9 +211,8 @@ fn printboard(board: &Vec<i8>, size_x: usize, size_y: usize) {
     }
 }
 
-fn find_knight_tour_on(size_x: u8, size_y: u8) {
+fn find_knight_tour_on(size_x: u8, size_y: u8, depth: u8) {
     let board_size_x = size_x + 4;
-    let board_size_y = size_y + 4;
 
     let mut board = init_board(size_x, size_y);
 
@@ -181,19 +221,52 @@ fn find_knight_tour_on(size_x: u8, size_y: u8) {
 
     board[target_pos as usize] = 10;
     //printboard(&board, board_size_x, board_size_y);
-    let mut solution = 0;
-    let mut nr_nodes = 0;
 
     let mut knight_jumps = [0i8; 8];
     for (i,delta) in KNIGHT_MOVES.iter().enumerate() {
         knight_jumps[i] = delta.1 * board_size_x as i8 + delta.0;
     }
 
-    let start = Instant::now();
+    tokio::runtime::Runtime::new().unwrap().block_on(process_knight_tour_parallel(size_x, size_y, depth, &mut board, target_pos, pos, &knight_jumps));
+}
+
+async fn process_knight_tour_parallel(size_x: u8, size_y: u8, depth: u8, mut board: &mut Vec<i8>, target_pos: u8, pos: u8, knight_jumps: &[i8; 8]) {
     eprintln!("Starting on {:2}x{:<2} ", size_x, size_y);
-    knights_tour(pos, 1, &mut board, size_y * size_x, target_pos, &knight_jumps, &mut solution, &mut nr_nodes, &start);
+    let nr_fields = size_y * size_x;
+
+    let start = Instant::now();
+    let mut tasks = vec![];
+    create_tasks(pos, 1, depth, &mut board, &knight_jumps, &mut tasks);
+    eprintln!("Created {:6} Tasks", tasks.len());
+
+    let mut set = JoinSet::new();
+
+    let mut solutions = 0;
+    let mut nr_nodes = 0;
+    for task in tasks {
+        set.spawn(run_task(target_pos, *knight_jumps, start, nr_fields, task));
+    }
+    while let Some(res) = set.join_next().await {
+        match res {
+            Ok(res) => {
+                solutions += res.0;
+                nr_nodes += res.1;}
+            Err(e) => {
+                eprintln!("Error: {}", e);
+            }
+        };
+
+    }
     let elapsed_time = start.elapsed().as_secs_f32();
-    println!("On {:2}x{:<2} {:7} Solutions in {:8.3}s {:8.2} Solutions/s {:13} Nodes", size_x, size_y, solution, elapsed_time, solution as f32/elapsed_time, nr_nodes);
+    println!("On {:2}x{:<2} {:7} Solutions in {:8.3}s {:8.2} Solutions/s {:13} Nodes", size_x, size_y, solutions, elapsed_time, solutions as f32 / elapsed_time, nr_nodes);
+}
+
+async fn run_task(target_pos: u8, knight_jumps: [i8; 8], start: Instant, nr_fields: u8, mut task: (Vec<i8>, u8, u8, u16)) -> (u64, u64) {
+    let mut solutions = 0;
+    let mut nodes = 0;
+    knights_tour(task.1, task.2, &mut task.0, nr_fields, target_pos, &knight_jumps, &mut solutions, &mut nodes, &start);
+    eprintln!("Task: {} has {:7} Solutions testet {:13} Nodes", task.3, solutions, nodes);
+    (solutions, nodes)
 }
 
 fn init_board(size_x: u8, size_y: u8) -> Vec<i8> {
