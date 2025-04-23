@@ -9,10 +9,10 @@ fn knights_tour_simple(pos: u8, step: u8, board: u64, nr_fields: u8, target_pos:
     *nr_nodes += 1;
     if pos == target_pos {
         if step == nr_fields{
-            if *solutions & 0xFFFFF == 0 { //16k
-             let elapsed = start.elapsed().as_secs_f32();
-                println!("{:6} Solutions in {:8.3}s {:8.2} Solutions/s {:13} Nodes", *solutions + 1, elapsed, (*solutions + 1) as f32/elapsed, nr_nodes);
-             }
+            // if *solutions & 0xFFFFF == 0 { //16k
+            //  let elapsed = start.elapsed().as_secs_f32();
+            //     println!("{:6} Solutions in {:8.3}s {:8.2} Solutions/s {:13} Nodes", *solutions + 1, elapsed, (*solutions + 1) as f32/elapsed, nr_nodes);
+            //  }
             *solutions += 1;
         }
     } else {
@@ -201,7 +201,7 @@ fn main() {
             find_knight_tour_on(x_arg.unwrap().clone() as u8, y_arg.unwrap().clone() as u8, d_arg.unwrap().clone() as u8);
         }
         None => {
-            for fields in 18..55 {
+            for fields in 55..64 {
                 for x in 3..7 {
                     if x == 4 {
                         continue; //no closed cycle on dim 4
@@ -212,7 +212,7 @@ fn main() {
                     if fields % x == 0 {
                         let y = fields / x;
                         if y >= x {
-                            find_knight_tour_on(x,y, 6);
+                            find_knight_tour_on(x,y, 8);
                         }
                     }
                 }
